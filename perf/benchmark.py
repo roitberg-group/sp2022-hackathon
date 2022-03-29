@@ -67,13 +67,19 @@ def benchmark(speciesPositions, aev_comp, runbackward=False, mol_info=None, verb
         # cell list uses matmul, we should disable TF32 to get accurate result
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.allow_tf32 = False
+        torch.cuda.nvtx.range_push('AEV forward')
         _, aev = aev_comp((species, coordinates))
+        torch.cuda.nvtx.range_pop()
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
         if args.mode == 'single':
+            torch.cuda.nvtx.range_push('NN forward')
             species_energies = single_model((species, aev))
+            torch.cuda.nvtx.range_pop()
         elif args.mode == 'ensemble':
+            torch.cuda.nvtx.range_push('NN forward')
             species_energies = neural_networks((species, aev))
+            torch.cuda.nvtx.range_pop()
         elif args.mode == 'aev':
             species_energies = (species, aev.sum(dim=-1))
         else:
@@ -85,7 +91,9 @@ def benchmark(speciesPositions, aev_comp, runbackward=False, mol_info=None, verb
 
         if runbackward:  # backward
             force_start = time.time()
+            torch.cuda.nvtx.range_push('Backward')
             force = -torch.autograd.grad(energies.sum(), coordinates, create_graph=True, retain_graph=True)[0]
+            torch.cuda.nvtx.range_pop()
             torch.cuda.synchronize()
             force_time += time.time() - force_start
 
@@ -148,13 +156,13 @@ if __name__ == "__main__":
 
     neural_networks = nnp_ref.neural_networks
     single_model = neural_networks[0]
-    neural_networks = neural_networks.to_infer_model(use_mnp=False).to(device)
-    single_model = single_model.to_infer_model(use_mnp=False).to(device)
+    neural_networks = neural_networks.to_infer_model(use_mnp=True).to(device)
+    single_model = single_model.to_infer_model(use_mnp=True).to(device)
 
     file = 'water-20.pdb'
     mol = read(file)
     # forward only
-    run(file, nnp_ref, runbackward=False, maxatoms=args.system_size)
+    # run(file, nnp_ref, runbackward=False, maxatoms=args.system_size)
     # with backward
     run(file, nnp_ref, runbackward=True, maxatoms=args.system_size)
 
