@@ -34,7 +34,7 @@ https://github.com/roitberg-group/torchani_sandbox
 To install TorchANI, we need first clone:
 
 ```bash
-git clone https://github.com/roitberg-group/torchani_sandbox.git
+git clone git@github.com:roitberg-group/torchani_sandbox.git
 ```
 
 Then install
