@@ -51,18 +51,19 @@ endif()
 # packages
 find_package(Torch REQUIRED)
 find_package(Python REQUIRED COMPONENTS Interpreter Development)
-add_subdirectory(cuaev)
+add_subdirectory(ani_csrc)
 
 # building the plugins
 add_library(ani_plugin MODULE ani_plugin.cpp pair_ani.cpp )
 target_include_directories(ani_plugin PRIVATE "${LAMMPS_HEADER_DIR}/OPENMP")
 target_link_libraries(ani_plugin PRIVATE lammps)
 
-# link to cuaev
+# link to ani
 target_link_libraries(ani_plugin PRIVATE ${TORCH_LIBRARIES} ${Python_LIBRARIES})
 # -Wl,--no-as-needed flag forces the link to happen
 # https://pytorch.org/tutorials/advanced/torch_script_custom_ops.html
 target_link_libraries(ani_plugin PRIVATE -Wl,--no-as-needed cuaev)
+target_link_libraries(ani_plugin PRIVATE -Wl,--no-as-needed ani)
 
 set_target_properties(ani_plugin PROPERTIES PREFIX "" SUFFIX ".so" LINK_FLAGS "-rdynamic")
 
