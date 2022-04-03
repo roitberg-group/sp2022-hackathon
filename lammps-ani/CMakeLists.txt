@@ -31,8 +31,8 @@ else()
   endif()
 endif()
 
-# C++11 is required
-set(CMAKE_CXX_STANDARD 11)
+# C++14 is required
+set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Need -restrict with Intel compilers
@@ -46,16 +46,25 @@ if(NOT LAMMPS_DIR)
   include(LAMMPSInterfaceCXX)
 endif()
 
-##########################
-# building the plugins
 
+##########################
+# packages
+find_package(Torch REQUIRED)
+find_package(Python REQUIRED COMPONENTS Interpreter Development)
+add_subdirectory(cuaev)
+
+# building the plugins
 add_library(ani_plugin MODULE ani_plugin.cpp pair_ani.cpp )
 target_include_directories(ani_plugin PRIVATE "${LAMMPS_HEADER_DIR}/OPENMP")
 target_link_libraries(ani_plugin PRIVATE lammps)
 
-set_target_properties(ani_plugin PROPERTIES PREFIX "" SUFFIX ".so")
+# link to cuaev
+target_link_libraries(ani_plugin PRIVATE ${TORCH_LIBRARIES} ${Python_LIBRARIES})
+# -Wl,--no-as-needed flag forces the link to happen
+# https://pytorch.org/tutorials/advanced/torch_script_custom_ops.html
+target_link_libraries(ani_plugin PRIVATE -Wl,--no-as-needed cuaev)
 
-set_target_properties(ani_plugin PROPERTIES LINK_FLAGS "-rdynamic")
+set_target_properties(ani_plugin PROPERTIES PREFIX "" SUFFIX ".so" LINK_FLAGS "-rdynamic")
 
 install(TARGETS ani_plugin LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib)
 
