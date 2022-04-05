@@ -54,8 +54,9 @@ find_package(Python REQUIRED COMPONENTS Interpreter Development)
 add_subdirectory(ani_csrc)
 
 # building the plugins
-add_library(ani_plugin MODULE ani_plugin.cpp pair_ani.cpp )
+add_library(ani_plugin MODULE ani_plugin.cpp pair_ani.cpp)
 target_include_directories(ani_plugin PRIVATE "${LAMMPS_HEADER_DIR}/OPENMP")
+target_include_directories(ani_plugin PRIVATE "ani_csrc")
 target_link_libraries(ani_plugin PRIVATE lammps)
 
 # link to ani

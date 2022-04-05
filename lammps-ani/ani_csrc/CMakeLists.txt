@@ -20,8 +20,8 @@ project(ani LANGUAGES CXX)
 find_package(OpenMP REQUIRED)
 add_library(ani SHARED mnp.cpp ani.cpp)
 target_include_directories(ani PRIVATE ./)
-# Link against LibTorch
 target_link_libraries(ani ${TORCH_LIBRARIES})
+# Link against LibTorch
 target_link_libraries(ani ${Python_LIBRARIES})
 target_link_libraries(ani OpenMP::OpenMP_CXX)
 
