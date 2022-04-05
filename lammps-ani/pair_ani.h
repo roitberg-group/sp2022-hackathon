@@ -15,6 +15,7 @@
 #define LMP_PAIR_ANI_H
 
 #include "pair.h"
+#include "ani.h"
 
 namespace LAMMPS_NS {
 
@@ -27,21 +28,12 @@ class PairANI : public Pair {
   void settings(int, char **) override;
   void coeff(int, char **) override;
   double init_one(int, int) override;
-  void write_restart(FILE *) override;
-  void read_restart(FILE *) override;
-  void write_restart_settings(FILE *) override;
-  void read_restart_settings(FILE *) override;
-  void write_data(FILE *) override;
-  void write_data_all(FILE *) override;
-  double single(int, int, int, int, double, double, double, double &) override;
   void *extract(const char *, int &) override;
 
  protected:
-  double cut_global;
-  double **cut;
-  double **d0, **alpha, **r0;
-  double **morse1;
-  double **offset;
+  double cutoff;
+  int local_rank;
+  ANI ani;
 
   virtual void allocate();
 };

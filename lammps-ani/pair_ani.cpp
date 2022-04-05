@@ -21,6 +21,7 @@
 #include "neigh_list.h"
 #include <cmath>
 #include <cstring>
+#include <vector>
 
 using namespace LAMMPS_NS;
 
@@ -28,7 +29,7 @@ using namespace LAMMPS_NS;
 
 PairANI::PairANI(LAMMPS *lmp) : Pair(lmp)
 {
-  writedata = 1;
+  writedata = 0;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -38,13 +39,6 @@ PairANI::~PairANI()
   if (allocated) {
     memory->destroy(setflag);
     memory->destroy(cutsq);
-
-    memory->destroy(cut);
-    memory->destroy(d0);
-    memory->destroy(alpha);
-    memory->destroy(r0);
-    memory->destroy(morse1);
-    memory->destroy(offset);
   }
 }
 
@@ -52,74 +46,100 @@ PairANI::~PairANI()
 
 void PairANI::compute(int eflag, int vflag)
 {
-  int i, j, ii, jj, inum, jnum, itype, jtype;
-  double xtmp, ytmp, ztmp, delx, dely, delz, evdwl, fpair;
-  double rsq, r, dr, dexp, factor_lj;
-  int *ilist, *jlist, *numneigh, **firstneigh;
-
-  evdwl = 0.0;
-  ev_init(eflag, vflag);
+  if (eflag || vflag) ev_setup(eflag, vflag);
 
   double **x = atom->x;
   double **f = atom->f;
   int *type = atom->type;
   int nlocal = atom->nlocal;
-  double *special_lj = force->special_lj;
-  int newton_pair = force->newton_pair;
+  int nghost = atom->nghost;
+  int ntotal = nlocal + nghost;
+  // int newton_pair = force->newton_pair; TODO?
 
-  inum = list->inum;
-  ilist = list->ilist;
-  numneigh = list->numneigh;
-  firstneigh = list->firstneigh;
+  int inum = list->inum;
+  int *ilist = list->ilist;
+  int *numneigh = list->numneigh;
+  int **firstneigh = list->firstneigh;
 
-  // loop over neighbors of my atoms
+  // calculate the total number of pairs
+  int npairs = 0;
+  for (int ii = 0; ii < inum; ii++) {
+    npairs += numneigh[ii];
+  }
+  // std::cout << "nlocal :" << nlocal << " nghost :" << nghost << " npairs : " << npairs << std::endl;
 
-  for (ii = 0; ii < inum; ii++) {
-    i = ilist[ii];
-    xtmp = x[i][0];
-    ytmp = x[i][1];
-    ztmp = x[i][2];
-    itype = type[i];
-    jlist = firstneigh[i];
-    jnum = numneigh[i];
+  // ani model outputs
+  double out_energy;
+  std::vector<float> out_force(ntotal * 3);
 
-    for (jj = 0; jj < jnum; jj++) {
-      j = jlist[jj];
-      factor_lj = special_lj[sbmask(j)];
-      j &= NEIGHMASK;
+  // ani model inputs
+  std::vector<int64_t> species(ntotal);
+  std::vector<float> coordinates(ntotal * 3);
+  std::vector<int64_t> atom_index12(2 * npairs);
+  std::vector<float> diff_vector(npairs * 3);
+  std::vector<float> distances(npairs);
+  // TODO cuaev could remove neighborlist if atom_i index is larger than nlocal
+  std::vector<int64_t> ghost_index(nghost);
 
-      delx = xtmp - x[j][0];
-      dely = ytmp - x[j][1];
-      delz = ztmp - x[j][2];
-      rsq = delx * delx + dely * dely + delz * delz;
-      jtype = type[j];
+  // species and coordinates
+  for (int ii = 0; ii < ntotal; ii++) {
+    species[ii] = type[ii] - 1; // lammps type from 1 to n
+    coordinates[ii * 3 + 0] = x[ii][0];
+    coordinates[ii * 3 + 1] = x[ii][1];
+    coordinates[ii * 3 + 2] = x[ii][2];
+  }
 
-      if (rsq < cutsq[itype][jtype]) {
-        r = sqrt(rsq);
-        dr = r - r0[itype][jtype];
-        dexp = exp(-alpha[itype][jtype] * dr);
-        fpair = factor_lj * morse1[itype][jtype] * (dexp * dexp - dexp) / r;
+  // currently ghost_index is just an array from nlocal to ntotal - 1
+  for (int ii = 0; ii < nghost; ii++) {
+    ghost_index[ii] = ii + nlocal;
+  }
 
-        f[i][0] += delx * fpair;
-        f[i][1] += dely * fpair;
-        f[i][2] += delz * fpair;
-        if (newton_pair || j < nlocal) {
-          f[j][0] -= delx * fpair;
-          f[j][1] -= dely * fpair;
-          f[j][2] -= delz * fpair;
-        }
+  // loop over neighbors of local atoms
+  int ipair = 0;
+  for (int ii = 0; ii < inum; ii++) {
+    int i = ilist[ii];
+    double xtmp = x[i][0];
+    double ytmp = x[i][1];
+    double ztmp = x[i][2];
+    int *jlist = firstneigh[i];
+    int jnum = numneigh[i];
 
-        if (eflag) {
-          evdwl = d0[itype][jtype] * (dexp * dexp - 2.0 * dexp) - offset[itype][jtype];
-          evdwl *= factor_lj;
-        }
+    for (int jj = 0; jj < jnum; jj++) {
+      int j = jlist[jj];
 
-        if (evflag) ev_tally(i, j, nlocal, newton_pair, evdwl, 0.0, fpair, delx, dely, delz);
-      }
+      double delx = xtmp - x[j][0];
+      double dely = ytmp - x[j][1];
+      double delz = ztmp - x[j][2];
+      double rsq = delx * delx + dely * dely + delz * delz;
+      double r = sqrt(rsq);
+
+      // atom_index12
+      atom_index12[npairs * 0 + ipair] = i;
+      atom_index12[npairs * 1 + ipair] = j;
+
+      // diff vector saved in float32
+      diff_vector[ipair * 3 + 0] = delx;
+      diff_vector[ipair * 3 + 1] = dely;
+      diff_vector[ipair * 3 + 2] = delz;
+
+      // distances
+      distances[ipair] = r;
+
+      ipair++;
     }
   }
 
-  if (vflag_fdotr) virial_fdotr_compute();
+  // run ani model
+  ani.compute(out_energy, out_force, species, coordinates, atom_index12, diff_vector, distances, ghost_index);
+
+  // write out force
+  for (int ii = 0; ii < ntotal; ii++) {
+    f[ii][0] = out_force[ii * 3 + 0];
+    f[ii][1] = out_force[ii * 3 + 1];
+    f[ii][2] = out_force[ii * 3 + 2];
+  }
+
+  if (eflag) eng_vdwl += out_energy;
 }
 
 /* ----------------------------------------------------------------------
@@ -136,13 +156,6 @@ void PairANI::allocate()
     for (int j = i; j <= n; j++) setflag[i][j] = 0;
 
   memory->create(cutsq, n + 1, n + 1, "pair:cutsq");
-
-  memory->create(cut, n + 1, n + 1, "pair:cut");
-  memory->create(d0, n + 1, n + 1, "pair:d0");
-  memory->create(alpha, n + 1, n + 1, "pair:alpha");
-  memory->create(r0, n + 1, n + 1, "pair:r0");
-  memory->create(morse1, n + 1, n + 1, "pair:morse1");
-  memory->create(offset, n + 1, n + 1, "pair:offset");
 }
 
 /* ----------------------------------------------------------------------
@@ -151,18 +164,26 @@ void PairANI::allocate()
 
 void PairANI::settings(int narg, char **arg)
 {
-  if (narg != 1) error->all(FLERR, "Illegal pair_style command");
+  if (narg < 1) error->all(FLERR, "Illegal pair_style command");
 
-  cut_global = utils::numeric(FLERR, arg[0], false, lmp);
+  // read cutoff
+  cutoff = utils::numeric(FLERR, arg[0], false, lmp);
 
-  // reset cutoffs that have been explicitly set
-
-  if (allocated) {
-    int i, j;
-    for (i = 1; i <= atom->ntypes; i++)
-      for (j = i; j <= atom->ntypes; j++)
-        if (setflag[i][j]) cut[i][j] = cut_global;
+  // parsing pairstyle argument
+  std::string model_file = arg[1];
+  std::string device_str = arg[2];
+  const char* nl_rank = getenv("OMPI_COMM_WORLD_LOCAL_RANK");
+  int node_local_rank = atoi(nl_rank);
+  // printf("local rank is %d \n", node_local_rank);
+  if (device_str != "cpu" && device_str != "cuda") {
+    std::cerr << "2nd argument must be <cpu/cuda>\n";
   }
+  if (device_str == "cpu") {
+    node_local_rank = -1;
+  }
+
+  // load model
+  ani = ANI(model_file, node_local_rank);
 }
 
 /* ----------------------------------------------------------------------
@@ -171,33 +192,25 @@ void PairANI::settings(int narg, char **arg)
 
 void PairANI::coeff(int narg, char **arg)
 {
-  if (narg < 5 || narg > 6) error->all(FLERR, "Incorrect args for pair coefficients");
   if (!allocated) allocate();
-
-  int ilo, ihi, jlo, jhi;
-  utils::bounds(FLERR, arg[0], 1, atom->ntypes, ilo, ihi, error);
-  utils::bounds(FLERR, arg[1], 1, atom->ntypes, jlo, jhi, error);
-
-  double d0_one = utils::numeric(FLERR, arg[2], false, lmp);
-  double alpha_one = utils::numeric(FLERR, arg[3], false, lmp);
-  double r0_one = utils::numeric(FLERR, arg[4], false, lmp);
-
-  double cut_one = cut_global;
-  if (narg == 6) cut_one = utils::numeric(FLERR, arg[5], false, lmp);
-
-  int count = 0;
-  for (int i = ilo; i <= ihi; i++) {
-    for (int j = MAX(jlo, i); j <= jhi; j++) {
-      d0[i][j] = d0_one;
-      alpha[i][j] = alpha_one;
-      r0[i][j] = r0_one;
-      cut[i][j] = cut_one;
-      setflag[i][j] = 1;
-      count++;
-    }
+  if (narg != 2) {
+    error->all(FLERR, "Incorrect args for pair coefficients, it should be set as: pair_coeff * *");
   }
 
-  if (count == 0) error->all(FLERR, "Incorrect args for pair coefficients");
+  int ilo, ihi, jlo, jhi;
+  int n = atom->ntypes;
+  utils::bounds(FLERR, arg[0], 1, n, ilo, ihi, error);
+  utils::bounds(FLERR, arg[1], 1, n, jlo, jhi, error);
+  if (ilo != 1 || jlo != 1 || ihi != n || jhi != n) {
+    error->all(FLERR, "Incorrect args for pair coefficients, it should be set as: pair_coeff * *");
+  }
+
+  // setflag
+  for (int i = ilo; i <= ihi; i++) {
+    for (int j = MAX(jlo, i); j <= jhi; j++) {
+      setflag[i][j] = 1;
+    }
+  }
 }
 
 /* ----------------------------------------------------------------------
@@ -206,148 +219,10 @@ void PairANI::coeff(int narg, char **arg)
 
 double PairANI::init_one(int i, int j)
 {
-  if (setflag[i][j] == 0) error->all(FLERR, "All pair coeffs are not set");
-
-  morse1[i][j] = 2.0 * d0[i][j] * alpha[i][j];
-
-  if (offset_flag) {
-    double alpha_dr = -alpha[i][j] * (cut[i][j] - r0[i][j]);
-    offset[i][j] = d0[i][j] * (exp(2.0 * alpha_dr) - 2.0 * exp(alpha_dr));
-  } else
-    offset[i][j] = 0.0;
-
-  d0[j][i] = d0[i][j];
-  alpha[j][i] = alpha[i][j];
-  r0[j][i] = r0[i][j];
-  morse1[j][i] = morse1[i][j];
-  offset[j][i] = offset[i][j];
-
-  return cut[i][j];
+  return cutoff;
 }
-
-/* ----------------------------------------------------------------------
-   proc 0 writes to restart file
-------------------------------------------------------------------------- */
-
-void PairANI::write_restart(FILE *fp)
-{
-  write_restart_settings(fp);
-
-  int i, j;
-  for (i = 1; i <= atom->ntypes; i++)
-    for (j = i; j <= atom->ntypes; j++) {
-      fwrite(&setflag[i][j], sizeof(int), 1, fp);
-      if (setflag[i][j]) {
-        fwrite(&d0[i][j], sizeof(double), 1, fp);
-        fwrite(&alpha[i][j], sizeof(double), 1, fp);
-        fwrite(&r0[i][j], sizeof(double), 1, fp);
-        fwrite(&cut[i][j], sizeof(double), 1, fp);
-      }
-    }
-}
-
-/* ----------------------------------------------------------------------
-   proc 0 reads from restart file, bcasts
-------------------------------------------------------------------------- */
-
-void PairANI::read_restart(FILE *fp)
-{
-  read_restart_settings(fp);
-
-  allocate();
-
-  int i, j;
-  int me = comm->me;
-  for (i = 1; i <= atom->ntypes; i++)
-    for (j = i; j <= atom->ntypes; j++) {
-      if (me == 0) utils::sfread(FLERR, &setflag[i][j], sizeof(int), 1, fp, nullptr, error);
-      MPI_Bcast(&setflag[i][j], 1, MPI_INT, 0, world);
-      if (setflag[i][j]) {
-        if (me == 0) {
-          utils::sfread(FLERR, &d0[i][j], sizeof(double), 1, fp, nullptr, error);
-          utils::sfread(FLERR, &alpha[i][j], sizeof(double), 1, fp, nullptr, error);
-          utils::sfread(FLERR, &r0[i][j], sizeof(double), 1, fp, nullptr, error);
-          utils::sfread(FLERR, &cut[i][j], sizeof(double), 1, fp, nullptr, error);
-        }
-        MPI_Bcast(&d0[i][j], 1, MPI_DOUBLE, 0, world);
-        MPI_Bcast(&alpha[i][j], 1, MPI_DOUBLE, 0, world);
-        MPI_Bcast(&r0[i][j], 1, MPI_DOUBLE, 0, world);
-        MPI_Bcast(&cut[i][j], 1, MPI_DOUBLE, 0, world);
-      }
-    }
-}
-
-/* ----------------------------------------------------------------------
-   proc 0 writes to restart file
-------------------------------------------------------------------------- */
-
-void PairANI::write_restart_settings(FILE *fp)
-{
-  fwrite(&cut_global, sizeof(double), 1, fp);
-  fwrite(&offset_flag, sizeof(int), 1, fp);
-  fwrite(&mix_flag, sizeof(int), 1, fp);
-}
-
-/* ----------------------------------------------------------------------
-   proc 0 reads from restart file, bcasts
-------------------------------------------------------------------------- */
-
-void PairANI::read_restart_settings(FILE *fp)
-{
-  if (comm->me == 0) {
-    utils::sfread(FLERR, &cut_global, sizeof(double), 1, fp, nullptr, error);
-    utils::sfread(FLERR, &offset_flag, sizeof(int), 1, fp, nullptr, error);
-    utils::sfread(FLERR, &mix_flag, sizeof(int), 1, fp, nullptr, error);
-  }
-  MPI_Bcast(&cut_global, 1, MPI_DOUBLE, 0, world);
-  MPI_Bcast(&offset_flag, 1, MPI_INT, 0, world);
-  MPI_Bcast(&mix_flag, 1, MPI_INT, 0, world);
-}
-
-/* ----------------------------------------------------------------------
-   proc 0 writes to data file
-------------------------------------------------------------------------- */
-
-void PairANI::write_data(FILE *fp)
-{
-  for (int i = 1; i <= atom->ntypes; i++)
-    fprintf(fp, "%d %g %g %g\n", i, d0[i][i], alpha[i][i], r0[i][i]);
-}
-
-/* ----------------------------------------------------------------------
-   proc 0 writes all pairs to data file
-------------------------------------------------------------------------- */
-
-void PairANI::write_data_all(FILE *fp)
-{
-  for (int i = 1; i <= atom->ntypes; i++)
-    for (int j = i; j <= atom->ntypes; j++)
-      fprintf(fp, "%d %d %g %g %g %g\n", i, j, d0[i][j], alpha[i][j], r0[i][j], cut[i][j]);
-}
-
-/* ---------------------------------------------------------------------- */
-
-double PairANI::single(int /*i*/, int /*j*/, int itype, int jtype, double rsq,
-                          double /*factor_coul*/, double factor_lj, double &fforce)
-{
-  double r, dr, dexp, phi;
-
-  r = sqrt(rsq);
-  dr = r - r0[itype][jtype];
-  dexp = exp(-alpha[itype][jtype] * dr);
-  fforce = factor_lj * morse1[itype][jtype] * (dexp * dexp - dexp) / r;
-
-  phi = d0[itype][jtype] * (dexp * dexp - 2.0 * dexp) - offset[itype][jtype];
-  return factor_lj * phi;
-}
-
-/* ---------------------------------------------------------------------- */
 
 void *PairANI::extract(const char *str, int &dim)
 {
-  dim = 2;
-  if (strcmp(str, "d0") == 0) return (void *) d0;
-  if (strcmp(str, "r0") == 0) return (void *) r0;
-  if (strcmp(str, "alpha") == 0) return (void *) alpha;
   return nullptr;
 }

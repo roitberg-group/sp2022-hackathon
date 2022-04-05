@@ -18,7 +18,7 @@ ANI::ANI(const std::string& model_file, int local_rank) : device(local_rank == -
 }
 
 // For simplicity, the accumulated energy will be saved into eng_vdwl,
-// instead of writing out per atom energy.
+// instead of writing to per atom energy.
 void ANI::compute(double& out_energy, std::vector<float>& out_force,
                   std::vector<int64_t>& species, std::vector<float>& coordinates,
                   std::vector<int64_t>& atom_index12, std::vector<float>& diff_vector,
@@ -46,7 +46,6 @@ void ANI::compute(double& out_energy, std::vector<float>& out_force,
   inputs.push_back(distances_t.to(device));
   inputs.push_back(ghost_index_t.to(device));
 
-  std::cout << "ghost_index_t: " << ghost_index_t.sizes() << std::endl;
   // run ani model
   auto energy_force = model.forward(inputs).toTuple();
 
