@@ -9,6 +9,7 @@ module load gcc/9.3.0 openmpi/4.0.4 cuda/11.1.0 git/2.30.1 cmake/3.21.3
 ```
 
 Build PyTorch from master branch: https://github.com/pytorch/pytorch#from-source
+
 You could skip this step by using `conda activate /red/nvidia-ai/roitberg-group/lmp`
 ```bash
 cd /some/path
