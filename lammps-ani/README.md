@@ -10,6 +10,7 @@ module load gcc/9.3.0 openmpi/4.0.4 cuda/11.1.0 git/2.30.1 cmake/3.21.3
 
 Build PyTorch from master branch: https://github.com/pytorch/pytorch#from-source
 ```bash
+cd /some/path
 git clone --recursive https://github.com/pytorch/pytorch
 cd pytorch
 git submodule sync
@@ -38,6 +39,7 @@ make -j
 
 ## Build lammps-ani
 ```bash
+cd /some/path
 # lammps-ani
 git clone git@github.com:roitberg-group/sp2022-hackathon.git
 cd sp2022-hackathon/
