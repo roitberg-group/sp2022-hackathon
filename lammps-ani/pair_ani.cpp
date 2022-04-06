@@ -22,6 +22,7 @@
 #include <cmath>
 #include <cstring>
 #include <vector>
+#include <cuda_runtime.h>
 
 using namespace LAMMPS_NS;
 
@@ -172,18 +173,40 @@ void PairANI::settings(int narg, char **arg)
   // parsing pairstyle argument
   std::string model_file = arg[1];
   std::string device_str = arg[2];
-  const char* nl_rank = getenv("OMPI_COMM_WORLD_LOCAL_RANK");
-  int node_local_rank = atoi(nl_rank);
-  // printf("local rank is %d \n", node_local_rank);
+
+  // not the proper way, when try to cast to interger, srun mpi failed
+  // const char* nl_rank = getenv("OMPI_COMM_WORLD_LOCAL_RANK");
+  // int node_local_rank = atoi(nl_rank);
+
+  int rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  int num_devices = 0;
+  cudaGetDeviceCount(&num_devices);
+
+  // get local rank to set cuda device
+  int local_rank = -1;
+  {
+      MPI_Comm local_comm;
+      MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, rank, MPI_INFO_NULL, &local_comm);
+      MPI_Comm_rank(local_comm, &local_rank);
+      MPI_Comm_free(&local_comm);
+  }
+  if (num_devices > 0) {
+    // map multiple process to same cuda device if there are more ranks
+    local_rank = local_rank % num_devices;
+  } else {
+    local_rank = -1;
+  }
+  // printf("local rank is %d \n", local_rank);
   if (device_str != "cpu" && device_str != "cuda") {
     std::cerr << "2nd argument must be <cpu/cuda>\n";
   }
   if (device_str == "cpu") {
-    node_local_rank = -1;
+    local_rank = -1;
   }
 
   // load model
-  ani = ANI(model_file, node_local_rank);
+  ani = ANI(model_file, local_rank);
 }
 
 /* ----------------------------------------------------------------------
