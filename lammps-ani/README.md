@@ -9,6 +9,7 @@ module load gcc/9.3.0 openmpi/4.0.4 cuda/11.1.0 git/2.30.1 cmake/3.21.3
 ```
 
 Build PyTorch from master branch: https://github.com/pytorch/pytorch#from-source
+You could skip this step by using `conda activate /red/nvidia-ai/roitberg-group/lmp`
 ```bash
 cd /some/path
 git clone --recursive https://github.com/pytorch/pytorch
@@ -40,14 +41,16 @@ make -j
 ## Build lammps-ani
 ```bash
 cd /some/path
+
 # lammps-ani
 git clone git@github.com:roitberg-group/sp2022-hackathon.git
 cd sp2022-hackathon/
 
-# torchani
+# build torchani
 git clone git@github.com:roitberg-group/torchani_sandbox.git
 cd torchani_sandbox
 git checkout withnbrlist
+# skip the following line if you are using `conda activate /red/nvidia-ai/roitberg-group/lmp`
 python setup.py develop --ext
 cd ..
 
@@ -60,8 +63,9 @@ make -j
 export LAMMPS_PLUGIN_PATH=${PWD}
 
 cd ..
-pip install torchvision --no-deps  # just for import error
-python save_ani.py  # you will get an ani2x_cuda.pt
+pip install torchvision --no-deps  # in case for import error
+pip install h5py                   # in case for import error
+python save_ani.py                 # you will get an ani2x_cuda.pt
 ```
 
 
