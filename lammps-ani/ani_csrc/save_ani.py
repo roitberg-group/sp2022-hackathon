@@ -3,7 +3,7 @@ import torchani
 
 
 def save_cuda_aev():
-    device = torch.device('cuda')
+    device = torch.device('cpu')
     Rcr = 5.2000e+00
     Rca = 3.5000e+00
     EtaR = torch.tensor([1.6000000e+01], device=device)
@@ -22,7 +22,7 @@ def save_cuda_aev():
     script_module.save('model.pt')
 
     # py jit test
-    device = 'cuda'
+    device = 'cuda:0'
     cu_aev = torch.jit.load('model.pt').to(device)
     coordinates = torch.tensor([
             [[0.03192167, 0.00638559, 0.01301679],
@@ -44,19 +44,23 @@ def save_cuda_aev():
 class ANI2x(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        device = torch.device('cuda')
         ani2x = torchani.models.ANI2x(periodic_table_index=False, model_index=None, cell_list=True,
-                                        use_cuaev_interface=True, use_cuda_extension=True).to(device)
+                                        use_cuaev_interface=False, use_cuda_extension=True)
         self.aev_computer = ani2x.aev_computer
-        self.aev_computer._init_cuaev_computer()
-        self.neural_networks = ani2x.neural_networks.to_infer_model(use_mnp=True).to(device)
+        self.neural_networks = ani2x.neural_networks.to_infer_model(use_mnp=True)
         self.energy_shifter = ani2x.energy_shifter
 
+    @torch.jit.export
     def forward(self, species, coordinates, atom_index12, diff_vector, distances, ghost_index=torch.tensor([])):
+        if not self.aev_computer.cuaev_is_initialized:
+            self.aev_computer._init_cuaev_computer()
+            self.aev_computer.cuaev_is_initialized = True
+            # TODO check again
+            self.neural_networks.mnp_migrate_device()
         # when use ghost_index and mnp, the input system must be a single molecule
         assert species.shape[0] == 1, "Currently only support inference for single molecule"
         aev = self.aev_computer._compute_cuaev_with_nbrlist(species, coordinates, atom_index12, diff_vector, distances)
-        # make sure species is not changed, so could be reused between iteration
+        # make sure species is not changed, so could be reused between iteration (TODO)
         species_set_ghost = species.detach().clone()
         # TODO set ghost atoms, could be optimized
         if ghost_index.shape[0]:
@@ -79,7 +83,7 @@ def save_ani2x_model():
     script_module.save('ani2x_cuda.pt')
     print("saved")
 
-    device = 'cuda'
+    device = 'cuda:1' if torch.cuda.device_count() > 1 else 'cuda:0'
     ani2x_loaded = torch.jit.load('ani2x_cuda.pt').to(device)
     print("loaded")
     coordinates = torch.tensor([
@@ -139,8 +143,8 @@ def save_ani2x_model():
     energy_ref, force_ref = ani2x_ref()
     # hard-coded floating values above loss some accuracy
     threshold = 1e-4
-    energy_err = torch.abs(torch.max(energy_ref - energy))
-    force_err = torch.abs(torch.max(force_ref - force))
+    energy_err = torch.abs(torch.max(energy_ref.cpu() - energy.cpu()))
+    force_err = torch.abs(torch.max(force_ref.cpu() - force.cpu()))
     print("energy err: ", energy_err.item())
     print("force  err: ", force_err.item())
     assert(energy_err < threshold)
