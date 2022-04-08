@@ -7,29 +7,25 @@ find_package(Torch REQUIRED)
 find_package(Python REQUIRED COMPONENTS Interpreter Development)
 include_directories(${Python_INCLUDE_DIRS})
 
-# Define our library target
+# cuaev lib
 add_library(cuaev SHARED cuaev.cpp aev.cu aev.h cuaev_cub.cuh)
 target_include_directories(cuaev PRIVATE ./)
-# set_property(TARGET cuaev PROPERTY CUDA_ARCHITECTURES 80)
-# Link against LibTorch
 target_link_libraries(cuaev ${TORCH_LIBRARIES})
 target_link_libraries(cuaev ${Python_LIBRARIES})
 
+# ani interface lib
 project(ani LANGUAGES CXX)
-# Define our library target
 find_package(OpenMP REQUIRED)
 add_library(ani SHARED mnp.cpp ani.cpp)
 target_include_directories(ani PRIVATE ./)
 target_link_libraries(ani ${TORCH_LIBRARIES})
-# Link against LibTorch
 target_link_libraries(ani ${Python_LIBRARIES})
 target_link_libraries(ani OpenMP::OpenMP_CXX)
 
+# test_model
 project(test_model LANGUAGES CXX)
-# Define our library target
 add_executable(test_model test_model.cpp)
 target_include_directories(test_model PRIVATE ./)
-# Link against LibTorch
 target_link_libraries(test_model ${TORCH_LIBRARIES})
 target_link_libraries(test_model ${Python_LIBRARIES})
 target_link_libraries(test_model ani)
