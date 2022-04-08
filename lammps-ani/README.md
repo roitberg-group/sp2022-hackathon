@@ -5,7 +5,8 @@ A plugin to run torchani on LAMMPS.
 Run an interactive session
 ```
 srun --partition=hpg-ai --reservation=hackathon --account=nvidia-ai --qos=nvidia-ai --gpus=8 --nodes=1 --ntasks=8 --cpus-per-task=25 --mem=80gb -t 10:00:00 --pty /bin/bash -i
-module load gcc/9.3.0 openmpi/4.0.4 cuda/11.1.0 git/2.30.1 cmake/3.21.3
+module load cuda/11.4.3 gcc/9.3.0 openmpi/4.0.5 cmake/3.21.3 git/2.30.1
+export CMAKE_CUDA_ARCHITECTURES="7.5;8.0"
 ```
 
 Build PyTorch from master branch: https://github.com/pytorch/pytorch#from-source
@@ -23,6 +24,7 @@ conda activate lmp
 conda install astunparse numpy ninja pyyaml mkl mkl-include setuptools cmake cffi typing_extensions future six requests dataclasses
 conda install -c pytorch magma-cuda111
 
+export TORCH_CUDA_ARCH_LIST="7.5;8.0"
 export CMAKE_PREFIX_PATH=${CONDA_PREFIX:-"$(dirname $(which conda))/../"}
 python setup.py develop
 ```
